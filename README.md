@@ -61,3 +61,9 @@ pip install -r requirements.txt
 ```
 
 如需使用CYRUS方法，还需要安装：
+
+```
+
+## 安全说明
+
+本项目已清理所有敏感信息，确保代码安全。
