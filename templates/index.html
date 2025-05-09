@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>有道云笔记转Markdown工具</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/remixicon@2.5.0/fonts/remixicon.css">
+    <style>
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+            width: 100%;
+        }
+        .loading-spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 2s linear infinite;
+            margin: 0 auto 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .tooltip {
+            position: relative;
+            display: inline-block;
+            cursor: help;
+        }
+        .tooltip .tooltiptext {
+            visibility: hidden;
+            width: 200px;
+            background-color: #555;
+            color: #fff;
+            text-align: center;
+            border-radius: 6px;
+            padding: 5px;
+            position: absolute;
+            z-index: 1;
+            bottom: 125%;
+            left: 50%;
+            margin-left: -100px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .tooltip:hover .tooltiptext {
+            visibility: visible;
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>有道云笔记转Markdown工具</h1>
+            <p>将有道云笔记导出的文件转换为Markdown格式</p>
+        </header>
+
+        <div class="main-content">
+            <!-- 上传文件区域 -->
+            <section class="upload-section">
+                <h2>上传文件</h2>
+                <div class="upload-card">
+                    <form action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data" id="upload-form">
+                        <div class="upload-area" id="upload-area">
+                            <i class="ri-upload-cloud-2-line"></i>
+                            <p>拖放文件到此处或点击选择文件</p>
+                            <input type="file" name="file" id="file-input" accept=".docx,.pdf">
+                        </div>
+                        <button type="submit" class="btn primary-btn" id="upload-btn">
+                            <i class="ri-upload-2-line"></i> 上传文件
+                        </button>
+                    </form>
+                    <div class="loading" id="upload-loading">
+                        <div class="loading-spinner"></div>
+                        <p>正在上传，请稍候...</p>
+                    </div>
+                </div>
+                
+                <!-- 已上传文件区域 -->
+                <div class="file-list">
+                    <h3>已上传文件</h3>
+                    {% if uploaded_files %}
+                        <ul>
+                            {% for file in uploaded_files %}
+                            <li>
+                                <div class="file-item">
+                                    <i class="ri-file-text-line"></i>
+                                    <span class="file-name">{{ file }}</span>
+                                    <div class="file-actions">
+                                        <div class="convert-tabs">
+                                            <span class="convert-label">转换方式:</span>
+                                            <div class="tabs-container">
+                                                {% for method in conversion_methods %}
+                                                <a href="{{ url_for('convert_file', filename=file, method=method) }}" class="tab-item convert-btn" data-filename="{{ file }}" data-method="{{ method }}">
+                                                    {% if method == 'default' %}默认{% elif method == 'cyrus' %}CYRUS{% else %}{{ method }}{% endif %}
+                                                    {% if method == 'cyrus' %}<span class="auto-install-hint">*</span>{% endif %}
+                                                </a>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                        <a href="{{ url_for('delete_upload', filename=file) }}" class="btn delete-btn confirm-delete" title="删除" data-filename="{{ file }}">
+                                            <i class="ri-delete-bin-line"></i>
+                                        </a>
+                                    </div>
+                                </div>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                        <div class="cyrus-hint">* CYRUS方式遇连接问题时将自动使用本地实现</div>
+                    {% else %}
+                        <p class="no-files">暂无已上传文件</p>
+                    {% endif %}
+                </div>
+            </section>
+
+            <!-- 已转换文件区域 -->
+            <section class="converted-section">
+                <h2>已转换文件</h2>
+                <div class="file-list">
+                    {% if converted_files %}
+                        <ul>
+                            {% for file in converted_files %}
+                            <li>
+                                <div class="file-item">
+                                    <i class="ri-markdown-line"></i>
+                                    <span class="file-name" title="{{ file }}">
+                                        {% if '/' in file %}
+                                            {{ file.split('/')[-1] }}
+                                            <div class="tooltip"><i class="ri-information-line"></i>
+                                                <span class="tooltiptext">完整路径: {{ file }}</span>
+                                            </div>
+                                        {% else %}
+                                            {{ file }}
+                                        {% endif %}
+                                    </span>
+                                    <div class="file-actions">
+                                        <a href="{{ url_for('download_file', filepath=file) }}" class="btn action-btn" title="下载">
+                                            <i class="ri-download-line"></i>
+                                        </a>
+                                        <a href="{{ url_for('delete_converted', filepath=file) }}" class="btn delete-btn confirm-delete" title="删除" data-filename="{{ file.split('/')[-1] }}">
+                                            <i class="ri-delete-bin-line"></i>
+                                        </a>
+                                    </div>
+                                </div>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <p class="no-files">暂无已转换文件</p>
+                    {% endif %}
+                </div>
+            </section>
+        </div>
+
+        <!-- 闪现消息区域 -->
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="flash-messages">
+                    {% for category, message in messages %}
+                        <div class="flash-message {{ category }}">
+                            {{ message }}
+                            <span class="close-btn">&times;</span>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        <!-- 转换进度指示器 -->
+        <div class="loading" id="convert-loading">
+            <div class="loading-spinner"></div>
+            <p>正在转换文件，这可能需要一些时间...</p>
+        </div>
+
+        <footer>
+            <p>&copy; 2023 有道云笔记转Markdown工具 | <a href="https://github.com/yourusername/youdonote2markdown" target="_blank">源代码</a></p>
+        </footer>
+    </div>
+
+    <!-- 引入外部JavaScript文件 -->
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+</body>
+</html> 

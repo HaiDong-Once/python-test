@@ -1,0 +1,5 @@
+# 请创建一个名为.env的文件，并配置以下内容
+# Gitee配置
+GITEE_REPO_OWNER=comma-dong
+GITEE_REPO_NAME=image-projects
+GITEE_ACCESS_TOKEN=your_access_token_here 
