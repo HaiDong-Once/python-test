@@ -424,6 +424,79 @@ class DocxParser:
             print(f"无法打开 {self.file_path}，请确保它是一个有效的 .docx 文件")
             return None
 
+    def extract_image(self, image_path, output_path):
+        """
+        从.docx文件中提取指定的图片并保存到指定路径
+        
+        Args:
+            image_path (str): docx中的图片路径，例如: 'word/media/image1.png'
+            output_path (str): 图片保存的目标路径
+        
+        Returns:
+            bool: 是否成功提取图片
+        """
+        try:
+            print(f"尝试提取图片: {image_path} 到 {output_path}")
+            with zipfile.ZipFile(self.file_path, 'r') as docx_zip:
+                # 获取所有媒体文件列表
+                media_files = [name for name in docx_zip.namelist() if name.startswith('word/media/')]
+                print(f"文档中的媒体文件数量: {len(media_files)}")
+                
+                # 检查文件是否存在
+                if image_path in docx_zip.namelist():
+                    # 获取图片数据
+                    image_data = docx_zip.read(image_path)
+                    
+                    # 确保输出目录存在
+                    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                    
+                    # 保存图片
+                    with open(output_path, 'wb') as img_file:
+                        img_file.write(image_data)
+                    print(f"成功提取图片: {image_path} 到 {output_path}")
+                    return True
+                else:
+                    print(f"图片 {image_path} 不存在于 .docx 文件中，尝试匹配文件名...")
+                    
+                    # 尝试通过基本名称匹配
+                    base_name = os.path.basename(image_path)
+                    for name in media_files:
+                        if name.endswith(base_name) or base_name in name:
+                            print(f"找到匹配文件: {name}")
+                            # 获取图片数据
+                            image_data = docx_zip.read(name)
+                            
+                            # 确保输出目录存在
+                            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                            
+                            # 保存图片
+                            with open(output_path, 'wb') as img_file:
+                                img_file.write(image_data)
+                            print(f"通过匹配文件名成功提取图片: {name} 到 {output_path}")
+                            return True
+                    
+                    # 如果找不到匹配的图片，尝试从media文件夹中提取第一个图片
+                    if media_files:
+                        print(f"未找到匹配的图片，尝试提取第一个媒体文件: {media_files[0]}")
+                        image_data = docx_zip.read(media_files[0])
+                        
+                        # 确保输出目录存在
+                        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                        
+                        # 保存图片
+                        with open(output_path, 'wb') as img_file:
+                            img_file.write(image_data)
+                        print(f"已提取替代图片: {media_files[0]} 到 {output_path}")
+                        return True
+                    
+                    print(f"无法在文档中找到任何可用图片")
+                    return False
+        except Exception as e:
+            print(f"提取图片时出错: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return False
+
 
 # 使用示例
 if __name__ == "__main__":

@@ -2,12 +2,24 @@ import os
 
 from docx2markdown.docx_parser import DocxParser, Paragraph, Table
 
+# 添加Gitee基础URL常量
+GITEE_BASE_URL = "https://gitee.com/comma-dong/image-projects/raw/master/"
 
 class DocxToMarkdownConverter:
-    def __init__(self, docx_file):
+    def __init__(self, docx_file, output_path=None):
         self.docx_file = docx_file
+        self.output_path = output_path
         self.in_code_block = False  # 用于追踪是否在代码块中
         self.code_block_content = ""  # 存储代码块的内容
+        self.image_count = 0  # 用于计数和生成图片文件名
+        self.extracted_images = []  # 保存已提取的图片信息
+        
+        # 获取文档名，用于创建图片目录
+        if output_path:
+            self.doc_name = os.path.basename(output_path).split('.')[0]
+            # 创建图片目录 - 与MD文件同级
+            self.img_dir = os.path.join(os.path.dirname(output_path), self.doc_name + "_outputs")
+            os.makedirs(self.img_dir, exist_ok=True)
 
     def _parse_text_with_hyperlink(self, paragraph):
         """
@@ -104,29 +116,32 @@ class DocxToMarkdownConverter:
                     markdown_text += f"{text}\n"
 
         # 处理图片
-        if image:
-
+        if image and self.output_path:
             image_filename = image['file']
-
-            # 调用方法获取图片的 Base64 编码
-            image_base64 = parser.get_image_base64(image['file'])
-            if image_base64:
-
-                # 获取图片的文件扩展名
-                extension = os.path.splitext(image_filename)[1].lower()
-
-                # 根据文件扩展名设置 MIME 类型
-                if extension == '.jpg' or extension == '.jpeg':
-                    mime_type = 'image/jpeg'
-                elif extension == '.png':
-                    mime_type = 'image/png'
-                elif extension == '.gif':
-                    mime_type = 'image/gif'
-                else:
-                    mime_type = 'image/png'  # 默认使用 PNG
-
-                # Markdown 格式的图片标签
-                markdown_text += f"\n![{image_filename}](data:{mime_type};base64,{image_base64})"
+            self.image_count += 1
+            
+            # 获取图片扩展名
+            extension = os.path.splitext(image_filename)[1].lower()
+            if not extension:
+                extension = ".png"  # 默认png格式
+            
+            # 新的图片文件名
+            new_image_name = f"image_{self.image_count}{extension}"
+            output_path = os.path.join(self.img_dir, new_image_name)
+            
+            # 从docx中提取图片并保存到文件
+            if parser.extract_image(image_filename, output_path):
+                # 记录已提取的图片
+                self.extracted_images.append(new_image_name)
+                
+                # 构建Gitee远程URL
+                folder_name = self.doc_name + "_outputs"
+                remote_url = f"{GITEE_BASE_URL}{folder_name}/{new_image_name}"
+                
+                # 使用Gitee链接格式添加图片
+                markdown_text += f"\n![{new_image_name}]({remote_url})\n"
+            else:
+                print(f"无法提取图片: {image_filename}")
 
         return markdown_text
 
@@ -182,7 +197,7 @@ class DocxToMarkdownConverter:
 
 
 def docx_to_markdown(docx_file, output=None):
-    converter = DocxToMarkdownConverter(docx_file)
+    converter = DocxToMarkdownConverter(docx_file, output)
     markdown_content = converter.convert()
 
     # 输出生成的 Markdown 内容
@@ -191,5 +206,10 @@ def docx_to_markdown(docx_file, output=None):
             f.write(markdown_content)
 
         print(f"Markdown 文件已生成：{output}")
+        
+        # 输出图片相关信息
+        if hasattr(converter, 'img_dir'):
+            print(f"图片保存在：{converter.img_dir}")
+            print(f"共提取了{len(converter.extracted_images)}张图片")
 
     return markdown_content

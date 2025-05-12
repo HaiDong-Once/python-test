@@ -8,6 +8,8 @@ import subprocess
 import sys
 import importlib.util
 import socket
+import inspect
+import traceback
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -23,6 +25,113 @@ try:
         converter_path = os.path.join(docx2md_path, 'docx_to_markdown_converter.py')
         if os.path.exists(converter_path):
             logger.info("找到本地docx2markdown库")
+            
+            # 导入并检查是否需要修复
+            try:
+                # 清除相关模块缓存
+                for module_name in list(sys.modules.keys()):
+                    if module_name.startswith('utils.docx2markdown'):
+                        del sys.modules[module_name]
+                
+                # 导入DocxParser类
+                from utils.docx2markdown.docx_parser import DocxParser
+                
+                # 检查是否需要添加extract_image方法
+                if not hasattr(DocxParser, 'extract_image'):
+                    logger.info("DocxParser缺少extract_image方法，正在添加...")
+                    import zipfile
+                    
+                    def extract_image(self, image_path, output_path):
+                        """从.docx文件中提取指定的图片并保存到指定路径"""
+                        try:
+                            logger.info(f"尝试提取图片: {image_path} 到 {output_path}")
+                            with zipfile.ZipFile(self.file_path, 'r') as docx_zip:
+                                # 获取媒体文件列表
+                                media_files = [name for name in docx_zip.namelist() if name.startswith('word/media/')]
+                                logger.info(f"文档中的媒体文件数量: {len(media_files)}")
+                                
+                                # 检查文件是否存在
+                                if image_path in docx_zip.namelist():
+                                    # 获取图片数据
+                                    image_data = docx_zip.read(image_path)
+                                    
+                                    # 确保输出目录存在
+                                    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                                    
+                                    # 保存图片
+                                    with open(output_path, 'wb') as img_file:
+                                        img_file.write(image_data)
+                                    logger.info(f"成功提取图片: {image_path} 到 {output_path}")
+                                    return True
+                                else:
+                                    # 尝试通过文件名匹配
+                                    base_name = os.path.basename(image_path)
+                                    for name in docx_zip.namelist():
+                                        if name.endswith(base_name) or base_name in name:
+                                            # 获取图片数据
+                                            image_data = docx_zip.read(name)
+                                            
+                                            # 确保输出目录存在
+                                            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                                            
+                                            # 保存图片
+                                            with open(output_path, 'wb') as img_file:
+                                                img_file.write(image_data)
+                                            logger.info(f"通过文件名匹配提取图片: {name} 到 {output_path}")
+                                            return True
+                                    
+                                    # 如果仍找不到，尝试提取任意媒体文件
+                                    if media_files:
+                                        image_data = docx_zip.read(media_files[0])
+                                        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                                        with open(output_path, 'wb') as img_file:
+                                            img_file.write(image_data)
+                                        logger.info(f"提取替代图片: {media_files[0]} 到 {output_path}")
+                                        return True
+                                    
+                                    logger.warning(f"无法找到匹配的图片: {image_path}")
+                                    return False
+                        except Exception as e:
+                            logger.error(f"提取图片时出错: {str(e)}")
+                            traceback.print_exc()
+                            return False
+                    
+                    # 将方法添加到DocxParser类
+                    DocxParser.extract_image = extract_image
+                    logger.info("成功添加extract_image方法到DocxParser类")
+                
+                # 检查DocxToMarkdownConverter类
+                from utils.docx2markdown.docx_to_markdown_converter import DocxToMarkdownConverter
+                
+                # 检查构造函数是否接受output_path参数
+                if 'output_path' not in inspect.signature(DocxToMarkdownConverter.__init__).parameters:
+                    logger.info("DocxToMarkdownConverter缺少output_path参数，正在修复...")
+                    
+                    # 保存原始方法
+                    original_init = DocxToMarkdownConverter.__init__
+                    
+                    # 定义新的初始化方法
+                    def new_init(self, docx_file, output_path=None):
+                        original_init(self, docx_file)
+                        self.output_path = output_path
+                        self.image_count = 0
+                        self.extracted_images = []
+                        
+                        # 创建图片目录
+                        if output_path:
+                            self.doc_name = os.path.basename(output_path).split('.')[0]
+                            self.img_dir = os.path.join(os.path.dirname(output_path), self.doc_name + "_outputs")
+                            os.makedirs(self.img_dir, exist_ok=True)
+                    
+                    # 替换初始化方法
+                    DocxToMarkdownConverter.__init__ = new_init
+                    logger.info("成功修复DocxToMarkdownConverter类")
+                
+                logger.info("docx2markdown库检查和修复完成")
+            
+            except Exception as e:
+                logger.error(f"修复docx2markdown库时出错: {str(e)}")
+                traceback.print_exc()
         else:
             logger.warning("utils/docx2markdown目录存在，但缺少docx_to_markdown_converter.py文件")
     else:
@@ -32,13 +141,35 @@ except Exception as e:
     logger.error(f"检查本地docx2markdown库时出错: {str(e)}")
     logger.info("应用将继续运行，使用可用的转换方法")
 
-# 创建Flask应用
+# 开始初始化应用
 app = Flask(__name__)
 app.secret_key = 'youdonote2markdown'
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['OUTPUT_FOLDER'] = 'outputs'
 app.config['ALLOWED_EXTENSIONS'] = {'docx', 'pdf'}
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 限制上传文件大小为50MB
+
+# 修复docx转换模块
+try:
+    import fix_docx_converter
+    import fix_cyrus_converter
+    
+    logger.info("正在应用docx转换模块修复...")
+    # 应用基础修复
+    docx_fix_result = fix_docx_converter.fix_all()
+    logger.info(f"docx转换模块修复{'成功' if docx_fix_result else '失败'}")
+    
+    # 应用Cyrus转换器修复
+    cyrus_fix_result = fix_cyrus_converter.fix_cyrus_converter()
+    logger.info(f"Cyrus转换器修复{'成功' if cyrus_fix_result else '失败'}")
+    
+    if docx_fix_result and cyrus_fix_result:
+        logger.info("所有修复已成功应用")
+    else:
+        logger.warning("部分修复未能成功应用，可能影响转换功能")
+except Exception as e:
+    logger.error(f"应用转换模块修复时出错: {str(e)}")
+    logger.error("将以默认配置继续运行应用")
 
 # 确保上传和输出目录存在
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
